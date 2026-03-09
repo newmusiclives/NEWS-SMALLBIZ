@@ -1,0 +1,87 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --primary: #6c5ce7;
+  --primary-dark: #5a4bd1;
+  --surface: #1e1e2e;
+  --surface-dark: #181825;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background-color: #181825;
+  color: #e4e4e7;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #181825;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #3a3a4e;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #4a4a5e;
+}
+
+/* Region checkbox list */
+.region-list {
+  max-height: calc(100vh - 380px);
+  overflow-y: auto;
+}
+
+/* Progress bar animation */
+@keyframes progress-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.progress-active {
+  animation: progress-pulse 1.5s ease-in-out infinite;
+}
+
+/* Table styles */
+.results-table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.results-table th {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background-color: #1e1e2e;
+}
+
+/* Checkbox custom styles */
+input[type="checkbox"] {
+  accent-color: #6c5ce7;
+}
+
+/* Select custom styles */
+select {
+  background-color: #2a2a3e;
+  color: #e4e4e7;
+  border: 1px solid #3a3a4e;
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+
+select:focus {
+  outline: none;
+  border-color: #6c5ce7;
+}
