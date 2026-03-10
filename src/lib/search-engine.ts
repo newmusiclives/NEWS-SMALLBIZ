@@ -12,6 +12,7 @@ export interface SearchResult {
   rating: number | null;
   reviewCount: number;
   source: string;
+  eventsUrl?: string;
 }
 
 export interface SearchProgress {
@@ -333,8 +334,20 @@ export async function searchBusinesses(
   _useCache: boolean,
   onProgress: (progress: SearchProgress) => void,
 ): Promise<SearchResult[]> {
+  const { searchBusinessesWeb } = await import('./web-scraper');
+  const { BUSINESS_TYPES } = await import('./business-types');
+  const { REGION_CATEGORIES } = await import('./regions');
+
+  // Build lookup maps
+  const bizTypeMap = new Map(BUSINESS_TYPES.map((t) => [t.id, t]));
+  const regionMap = new Map<string, { name: string; country: string }>();
+  for (const cat of REGION_CATEGORIES) {
+    for (const r of cat.regions) {
+      regionMap.set(r.id, { name: r.name, country: r.country });
+    }
+  }
+
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
-  const useApi = !!apiKey;
   const startTime = Date.now();
   const allResults: SearchResult[] = [];
   const errors: string[] = [];
@@ -342,12 +355,17 @@ export async function searchBusinesses(
   let newFound = 0;
 
   for (const regionId of regionIds) {
-    const regionInfo = REGION_INFO[regionId] || getDefaultRegionInfo(regionId);
+    const regionInfo = regionMap.get(regionId) ||
+      REGION_INFO[regionId] ||
+      getDefaultRegionInfo(regionId);
 
     for (const businessType of businessTypeIds) {
+      const bizType = bizTypeMap.get(businessType);
+      const bizName = bizType?.name || businessType;
+
       onProgress({
         currentRegion: regionInfo.name,
-        currentBusinessType: businessType,
+        currentBusinessType: bizName,
         regionsProcessed,
         totalRegions: regionIds.length,
         newFound,
@@ -360,7 +378,8 @@ export async function searchBusinesses(
       try {
         let results: SearchResult[];
 
-        if (useApi) {
+        if (apiKey) {
+          // Google Places API if key is available
           results = await searchGooglePlaces(
             regionId,
             businessType,
@@ -369,7 +388,45 @@ export async function searchBusinesses(
             maxPerRegion,
           );
         } else {
-          results = await simulateSearch(regionId, businessType);
+          // Web scraping — DuckDuckGo (no API key needed)
+          const webResults = await searchBusinessesWeb(
+            regionId,
+            regionInfo.name,
+            regionInfo.country,
+            businessType,
+            bizName,
+            maxPerRegion,
+            (statusMsg) => {
+              onProgress({
+                currentRegion: statusMsg,
+                currentBusinessType: bizName,
+                regionsProcessed,
+                totalRegions: regionIds.length,
+                newFound,
+                totalInDb: allResults.length,
+                elapsedMs: Date.now() - startTime,
+                status: 'searching',
+                errors,
+              });
+            },
+          );
+
+          results = webResults.map((r) => ({
+            name: r.name,
+            businessType: r.businessType,
+            address: r.address,
+            city: r.city,
+            regionId: r.regionId,
+            regionName: r.regionName,
+            country: r.country,
+            phone: r.phone,
+            email: r.email,
+            website: r.website,
+            rating: r.rating,
+            reviewCount: r.reviewCount,
+            source: r.source,
+            eventsUrl: r.eventsUrl || undefined,
+          }));
         }
 
         // Cap results per region
@@ -380,7 +437,7 @@ export async function searchBusinesses(
         allResults.push(...results);
         newFound += results.length;
       } catch (err) {
-        const errorMsg = `Error searching ${businessType} in ${regionInfo.name}: ${err instanceof Error ? err.message : String(err)}`;
+        const errorMsg = `Error searching ${bizName} in ${regionInfo.name}: ${err instanceof Error ? err.message : String(err)}`;
         errors.push(errorMsg);
       }
     }

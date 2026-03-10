@@ -25,6 +25,9 @@ export interface Business {
   discovered_at: string;
   updated_at: string;
   is_new: number;
+  has_newsletter: number;
+  newsletter_signals: string | null;
+  events_url: string | null;
 }
 
 export interface Schedule {
@@ -77,7 +80,10 @@ function createTables(db: Database.Database): void {
       source TEXT DEFAULT 'google',
       discovered_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
-      is_new INTEGER DEFAULT 1
+      is_new INTEGER DEFAULT 1,
+      has_newsletter INTEGER DEFAULT 0,
+      newsletter_signals TEXT,
+      events_url TEXT
     );
 
     CREATE UNIQUE INDEX IF NOT EXISTS idx_businesses_unique
@@ -99,6 +105,21 @@ function createTables(db: Database.Database): void {
   `);
 }
 
+function migrateTables(db: Database.Database): void {
+  // Add newsletter columns if they don't exist (for existing databases)
+  const cols = db.prepare("PRAGMA table_info(businesses)").all() as { name: string }[];
+  const colNames = cols.map((c) => c.name);
+  if (!colNames.includes('has_newsletter')) {
+    db.exec('ALTER TABLE businesses ADD COLUMN has_newsletter INTEGER DEFAULT 0');
+  }
+  if (!colNames.includes('newsletter_signals')) {
+    db.exec('ALTER TABLE businesses ADD COLUMN newsletter_signals TEXT');
+  }
+  if (!colNames.includes('events_url')) {
+    db.exec('ALTER TABLE businesses ADD COLUMN events_url TEXT');
+  }
+}
+
 export function getDb(): Database.Database {
   if (dbInstance) return dbInstance;
 
@@ -110,6 +131,7 @@ export function getDb(): Database.Database {
   dbInstance = new Database(DB_PATH);
   dbInstance.pragma('journal_mode = WAL');
   createTables(dbInstance);
+  migrateTables(dbInstance);
   return dbInstance;
 }
 
@@ -127,6 +149,9 @@ export function insertBusiness(biz: {
   rating?: number | null;
   reviewCount?: number;
   source?: string;
+  hasNewsletter?: boolean;
+  newsletterSignals?: string[];
+  eventsUrl?: string;
 }): boolean {
   const db = getDb();
   const now = new Date().toISOString();
@@ -135,9 +160,10 @@ export function insertBusiness(biz: {
   const stmt = db.prepare(`
     INSERT OR IGNORE INTO businesses
       (id, name, business_type, address, city, region_id, region_name, country,
-       phone, email, website, rating, review_count, source, discovered_at, updated_at, is_new)
+       phone, email, website, rating, review_count, source, discovered_at, updated_at, is_new,
+       has_newsletter, newsletter_signals, events_url)
     VALUES
-      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
   `);
 
   const result = stmt.run(
@@ -157,6 +183,9 @@ export function insertBusiness(biz: {
     biz.source ?? 'google',
     now,
     now,
+    biz.hasNewsletter ? 1 : 0,
+    biz.newsletterSignals ? JSON.stringify(biz.newsletterSignals) : null,
+    biz.eventsUrl ?? null,
   );
 
   return result.changes > 0;

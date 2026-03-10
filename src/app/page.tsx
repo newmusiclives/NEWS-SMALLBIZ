@@ -1,8 +1,42 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo, Component, type ErrorInfo, type ReactNode } from 'react';
 import { REGION_CATEGORIES, type RegionCategory, type Region } from '@/lib/regions';
 import { BUSINESS_TYPES, BUSINESS_CATEGORIES, getBusinessTypesByCategory, type BusinessType } from '@/lib/business-types';
+
+// ─── Error Boundary ────────────────────────────────────────────────────────────
+
+class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: string }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: '' };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error: error.message };
+  }
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('React error boundary caught:', error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-background flex items-center justify-center p-8">
+          <div className="bg-surface rounded-xl border border-border p-8 max-w-md text-center">
+            <h2 className="text-xl font-bold text-danger mb-4">Something went wrong</h2>
+            <p className="text-text-secondary mb-4">{this.state.error}</p>
+            <button
+              onClick={() => this.setState({ hasError: false, error: '' })}
+              className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition-colors"
+            >
+              Try Again
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 // ─── Types ──────────────────────────────────────────────────────────────────────
 
@@ -20,6 +54,9 @@ interface Business {
   rating: number | null;
   isNew?: boolean;
   createdAt?: string;
+  hasNewsletter?: boolean;
+  newsletterSignals?: string[];
+  eventsUrl?: string;
 }
 
 interface SearchProgress {
@@ -32,6 +69,9 @@ interface SearchProgress {
   totalInDb: number;
   errors: number;
   percentage: number;
+  totalDiscovered?: number;
+  duplicatesSkipped?: number;
+  withNewsletter?: number;
 }
 
 interface DatabaseSummary {
@@ -334,10 +374,18 @@ function ConfirmDialog({
 
 // ─── Main Page Component ────────────────────────────────────────────────────────
 
-export default function HomePage() {
+export default function HomePageWrapper() {
+  return (
+    <ErrorBoundary>
+      <HomePage />
+    </ErrorBoundary>
+  );
+}
+
+function HomePage() {
   // ── Sidebar State ──
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [maxPerRegion, setMaxPerRegion] = useState(200);
+  const [maxPerRegion, setMaxPerRegion] = useState(25);
   const [useCache, setUseCache] = useState(true);
 
   // ── Region State ──
@@ -530,46 +578,91 @@ export default function HomePage() {
       const decoder = new TextDecoder();
       let buffer = '';
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      const processLine = (line: string) => {
+        if (!line.trim()) return;
+        try {
+          const data = JSON.parse(line);
+          if (!data || !data.type) return;
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
+          if (data.type === 'progress' && data.data) {
+            setSearchProgress((prev) => ({
+              status: 'searching' as const,
+              currentRegion: data.data.currentRegion ?? prev?.currentRegion ?? '',
+              currentType: data.data.currentType ?? prev?.currentType ?? '',
+              regionsProcessed: data.data.regionsProcessed ?? prev?.regionsProcessed ?? 0,
+              totalRegions: data.data.totalRegions ?? prev?.totalRegions ?? 0,
+              newFound: data.data.newFound ?? prev?.newFound ?? 0,
+              totalInDb: data.data.totalInDb ?? prev?.totalInDb ?? 0,
+              errors: data.data.errors ?? prev?.errors ?? 0,
+              percentage: data.data.percentage ?? prev?.percentage ?? 0,
+              totalDiscovered: data.data.totalDiscovered ?? prev?.totalDiscovered,
+              duplicatesSkipped: data.data.duplicatesSkipped ?? prev?.duplicatesSkipped,
+              withNewsletter: data.data.withNewsletter ?? prev?.withNewsletter,
+            }));
+          } else if (data.type === 'results' && Array.isArray(data.data)) {
+            // Sanitize business objects to prevent render crashes from null fields
+            const safeBiz = data.data.map((b: Record<string, unknown>) => ({
+              id: b.id || `${b.name}-${b.address}-${b.regionId}`,
+              name: String(b.name || 'Unknown'),
+              type: String(b.type || ''),
+              address: String(b.address || ''),
+              city: String(b.city || ''),
+              region: String(b.region || ''),
+              regionId: String(b.regionId || ''),
+              phone: String(b.phone || ''),
+              email: String(b.email || ''),
+              website: String(b.website || ''),
+              rating: typeof b.rating === 'number' ? b.rating : null,
+              isNew: b.isNew ?? true,
+              hasNewsletter: b.hasNewsletter ?? false,
+              newsletterSignals: Array.isArray(b.newsletterSignals) ? b.newsletterSignals : [],
+              eventsUrl: String(b.eventsUrl || ''),
+            }));
+            setSearchResults((prev) => [...prev, ...safeBiz]);
+          } else if (data.type === 'complete' && data.data) {
+            setSearchProgress((prev) => ({
+              ...prev!,
+              ...data.data,
+              status: 'complete' as const,
+              percentage: 100,
+            }));
+          } else if (data.type === 'error') {
+            setSearchProgress((prev) => prev ? {
+              ...prev,
+              errors: (prev.errors || 0) + 1,
+              status: 'error' as const,
+            } : null);
+          }
+          // Ignore 'heartbeat' and unknown types
+        } catch {
+          // Skip unparseable lines
+        }
+      };
 
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          try {
-            const data = JSON.parse(line);
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
 
-            if (data.type === 'progress') {
-              setSearchProgress((prev) => ({
-                ...prev!,
-                ...data.data,
-                status: 'searching',
-              }));
-            } else if (data.type === 'results') {
-              setSearchResults((prev) => [...prev, ...data.data]);
-            } else if (data.type === 'complete') {
-              setSearchProgress((prev) => ({
-                ...prev!,
-                ...data.data,
-                status: 'complete',
-                percentage: 100,
-              }));
-            } else if (data.type === 'error') {
-              setSearchProgress((prev) => ({
-                ...prev!,
-                errors: (prev?.errors || 0) + 1,
-              }));
-            }
-          } catch {
-            // Skip unparseable lines
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            processLine(line);
           }
         }
+        // Process any remaining buffer
+        if (buffer.trim()) {
+          processLine(buffer);
+        }
+      } catch (readErr) {
+        console.error('Stream read error:', readErr);
+        // Stream died — show error but don't crash
+        setSearchProgress((prev) => prev ? { ...prev, status: 'error' as const } : null);
       }
     } catch (err: unknown) {
+      console.error('Search error:', err);
       if (err instanceof Error && err.name === 'AbortError') {
         setSearchProgress((prev) =>
           prev ? { ...prev, status: 'stopped' } : null
@@ -597,10 +690,10 @@ export default function HomePage() {
       const q = searchFilter.toLowerCase();
       results = results.filter(
         (b) =>
-          b.name.toLowerCase().includes(q) ||
-          b.city.toLowerCase().includes(q) ||
-          b.email.toLowerCase().includes(q) ||
-          b.phone.includes(q)
+          (b.name || '').toLowerCase().includes(q) ||
+          (b.city || '').toLowerCase().includes(q) ||
+          (b.email || '').toLowerCase().includes(q) ||
+          (b.phone || '').includes(q)
       );
     }
     if (regionFilter) {
@@ -611,8 +704,8 @@ export default function HomePage() {
     }
 
     results.sort((a, b) => {
-      const aVal = a[sortColumn] ?? '';
-      const bVal = b[sortColumn] ?? '';
+      const aVal = (a[sortColumn] as string | number | null) ?? '';
+      const bVal = (b[sortColumn] as string | number | null) ?? '';
       if (aVal < bVal) return sortDir === 'asc' ? -1 : 1;
       if (aVal > bVal) return sortDir === 'asc' ? 1 : -1;
       return 0;
@@ -851,17 +944,18 @@ export default function HomePage() {
               <div className="space-y-3">
                 <div>
                   <label htmlFor="maxPerRegion" className="block text-sm text-text-secondary mb-1">
-                    Max per region
+                    Results per region
                   </label>
-                  <input
+                  <select
                     id="maxPerRegion"
-                    type="number"
-                    min={1}
-                    max={1000}
                     value={maxPerRegion}
-                    onChange={(e) => setMaxPerRegion(Math.max(1, parseInt(e.target.value) || 1))}
+                    onChange={(e) => setMaxPerRegion(parseInt(e.target.value))}
                     className="w-full bg-surface-dark border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors"
-                  />
+                  >
+                    {[25, 50, 75, 100, 150, 200, 300, 500, 750, 1000].map((n) => (
+                      <option key={n} value={n}>{n}</option>
+                    ))}
+                  </select>
                 </div>
                 <label className="flex items-center gap-2 cursor-pointer group">
                   <div
@@ -1107,11 +1201,11 @@ export default function HomePage() {
                     <div className="w-full bg-surface-dark rounded-full h-3 mb-4 overflow-hidden">
                       <div
                         className="bg-gradient-to-r from-primary to-primary-light h-full rounded-full transition-all duration-500 ease-out"
-                        style={{ width: `${searchProgress.percentage}%` }}
+                        style={{ width: `${searchProgress.percentage ?? 0}%` }}
                       />
                     </div>
                     <p className="text-sm text-text-secondary mb-4">
-                      {searchProgress.percentage.toFixed(0)}% complete
+                      {(searchProgress.percentage ?? 0).toFixed(0)}% complete
                     </p>
 
                     {/* Current Task */}
@@ -1150,6 +1244,44 @@ export default function HomePage() {
                 </div>
               )}
 
+              {/* Search Summary Card */}
+              {!isSearching && searchProgress?.status === 'complete' && searchResults.length > 0 && (
+                <div className="bg-surface rounded-xl border border-border p-5 mb-6">
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+                    <div className="text-center">
+                      <p className="text-2xl font-bold text-text-primary">
+                        {(searchProgress.totalDiscovered ?? searchProgress.newFound ?? 0).toLocaleString()}
+                      </p>
+                      <p className="text-xs text-text-muted mt-1">Total Found</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-2xl font-bold text-success">
+                        {(searchProgress.newFound ?? 0).toLocaleString()}
+                      </p>
+                      <p className="text-xs text-text-muted mt-1">New Leads Added</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-2xl font-bold text-warning">
+                        {(searchProgress.duplicatesSkipped ?? 0).toLocaleString()}
+                      </p>
+                      <p className="text-xs text-text-muted mt-1">Already in Database</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-2xl font-bold text-primary-light">
+                        {(searchProgress.withNewsletter ?? 0).toLocaleString()}
+                      </p>
+                      <p className="text-xs text-text-muted mt-1">Have Newsletter</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-2xl font-bold text-info">
+                        {(searchProgress.totalInDb ?? 0).toLocaleString()}
+                      </p>
+                      <p className="text-xs text-text-muted mt-1">Total in Database</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Results Table */}
               {searchResults.length > 0 && (
                 <div>
@@ -1163,9 +1295,21 @@ export default function HomePage() {
                         </span>
                       </h3>
                       {searchProgress?.status === 'complete' && (
-                        <p className="text-sm text-success mt-0.5">
-                          Search complete - {searchProgress.newFound} new businesses found
-                        </p>
+                        <div className="mt-1">
+                          <p className="text-sm text-success font-medium">Search Complete</p>
+                          <p className="text-sm text-text-secondary mt-0.5">
+                            Found {(searchProgress.totalDiscovered ?? searchProgress.newFound ?? 0).toLocaleString()} businesses
+                            {' \u2014 '}
+                            <span className="text-success font-medium">
+                              {(searchProgress.newFound ?? 0).toLocaleString()} new leads added
+                            </span>
+                            {(searchProgress.duplicatesSkipped ?? 0) > 0 && (
+                              <span className="text-text-muted">
+                                , {searchProgress.duplicatesSkipped!.toLocaleString()} already in database
+                              </span>
+                            )}
+                          </p>
+                        </div>
                       )}
                     </div>
                     <div className="flex items-center gap-2">
@@ -1249,6 +1393,8 @@ export default function HomePage() {
                               { key: 'phone' as keyof Business, label: 'Phone' },
                               { key: 'email' as keyof Business, label: 'Email' },
                               { key: 'website' as keyof Business, label: 'Website' },
+                              { key: 'hasNewsletter' as keyof Business, label: 'Newsletter' },
+                              { key: 'eventsUrl' as keyof Business, label: 'Events Page' },
                               { key: 'rating' as keyof Business, label: 'Rating' },
                             ].map(({ key, label }) => (
                               <th
@@ -1325,6 +1471,37 @@ export default function HomePage() {
                                     <span className="text-text-muted">-</span>
                                   )}
                                 </td>
+                                <td className="px-3 py-2.5 text-center whitespace-nowrap">
+                                  {business.hasNewsletter ? (
+                                    <span
+                                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-success/15 text-success text-xs font-medium"
+                                      title={business.newsletterSignals?.join(', ') || 'Newsletter found'}
+                                    >
+                                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 6l3 3 5-5" /></svg>
+                                      Yes
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-surface-dark text-text-muted text-xs">
+                                      No
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="px-3 py-2.5 text-text-secondary whitespace-nowrap">
+                                  {business.eventsUrl ? (
+                                    <a
+                                      href={business.eventsUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/15 text-primary-light text-xs font-medium hover:bg-primary/25 transition-colors"
+                                    >
+                                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="1.5" y="2.5" width="9" height="8" rx="1" /><path d="M1.5 5.5h9M4 1v3M8 1v3" /></svg>
+                                      Events
+                                    </a>
+                                  ) : (
+                                    <span className="text-text-muted text-xs">-</span>
+                                  )}
+                                </td>
                                 <td className="px-3 py-2.5 text-text-secondary whitespace-nowrap">
                                   {business.rating != null ? (
                                     <span className="flex items-center gap-1">
@@ -1338,7 +1515,7 @@ export default function HomePage() {
                               </tr>
                               {expandedRow === business.id && (
                                 <tr>
-                                  <td colSpan={10} className="bg-surface-dark px-6 py-4">
+                                  <td colSpan={12} className="bg-surface-dark px-6 py-4">
                                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
                                       <div>
                                         <p className="text-text-muted text-xs mb-1">Full Name</p>
@@ -1397,6 +1574,43 @@ export default function HomePage() {
                                             : 'No rating'}
                                         </p>
                                       </div>
+                                      <div>
+                                        <p className="text-text-muted text-xs mb-1">Newsletter Signup</p>
+                                        <p className="text-text-primary">
+                                          {business.hasNewsletter ? (
+                                            <span className="inline-flex items-center gap-1 text-success">
+                                              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 6l3 3 5-5" /></svg>
+                                              Found
+                                            </span>
+                                          ) : (
+                                            <span className="text-text-muted">Not detected</span>
+                                          )}
+                                        </p>
+                                        {business.newsletterSignals && business.newsletterSignals.length > 0 && (
+                                          <div className="mt-1 space-y-0.5">
+                                            {business.newsletterSignals.map((sig, i) => (
+                                              <p key={i} className="text-xs text-text-muted truncate max-w-[250px]">
+                                                {sig}
+                                              </p>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </div>
+                                      {business.eventsUrl && (
+                                        <div>
+                                          <p className="text-text-muted text-xs mb-1">Events / Calendar</p>
+                                          <p className="text-text-primary">
+                                            <a
+                                              href={business.eventsUrl}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="text-info hover:underline"
+                                            >
+                                              {business.eventsUrl.replace(/^https?:\/\//, '').replace(/\/$/, '')}
+                                            </a>
+                                          </p>
+                                        </div>
+                                      )}
                                       <div>
                                         <p className="text-text-muted text-xs mb-1">Status</p>
                                         <p className="text-text-primary">
