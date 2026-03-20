@@ -15,7 +15,7 @@ module.exports = {
         'surface-dark': '#181825',
         'surface-light': '#2a2a3e',
         'surface-hover': '#313145',
-        border: '#3a3a4e',
+        line: '#3a3a4e',
         'text-primary': '#e4e4e7',
         'text-secondary': '#a1a1aa',
         'text-muted': '#71717a',

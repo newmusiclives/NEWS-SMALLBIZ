@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef, useMemo, Component, type ErrorInfo, type ReactNode } from 'react';
+import dynamic from 'next/dynamic';
 import { REGION_CATEGORIES, type RegionCategory, type Region } from '@/lib/regions';
 import { BUSINESS_TYPES, BUSINESS_CATEGORIES, getBusinessTypesByCategory, type BusinessType } from '@/lib/business-types';
 
@@ -20,13 +21,13 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boole
   render() {
     if (this.state.hasError) {
       return (
-        <div className="min-h-screen bg-background flex items-center justify-center p-8">
-          <div className="bg-surface rounded-xl border border-border p-8 max-w-md text-center">
-            <h2 className="text-xl font-bold text-danger mb-4">Something went wrong</h2>
-            <p className="text-text-secondary mb-4">{this.state.error}</p>
+        <div style={{ minHeight: '100vh', background: '#181825', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 32 }}>
+          <div style={{ background: '#1e1e2e', border: '1px solid #3a3a4e', borderRadius: 12, padding: 32, maxWidth: 400, textAlign: 'center' }}>
+            <h2 style={{ color: '#ef4444', fontSize: 20, fontWeight: 'bold', marginBottom: 16 }}>Something went wrong</h2>
+            <p style={{ color: '#a1a1aa', marginBottom: 16 }}>{this.state.error}</p>
             <button
               onClick={() => this.setState({ hasError: false, error: '' })}
-              className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition-colors"
+              style={{ padding: '8px 16px', background: '#6c5ce7', color: 'white', border: 'none', borderRadius: 8, cursor: 'pointer' }}
             >
               Try Again
             </button>
@@ -184,7 +185,7 @@ function ExpandableSection({
   children: React.ReactNode;
 }) {
   return (
-    <div className="border border-border rounded-lg overflow-hidden">
+    <div className="border border-line rounded-lg overflow-hidden">
       <button
         onClick={onToggle}
         className="w-full flex items-center justify-between px-3 py-2.5 bg-surface-dark hover:bg-surface-hover transition-colors text-left"
@@ -202,8 +203,8 @@ function ExpandableSection({
         </span>
       </button>
       {expanded && (
-        <div className="border-t border-border bg-surface">
-          <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border">
+        <div className="border-t border-line bg-surface">
+          <div className="flex items-center gap-2 px-3 py-1.5 border-b border-line">
             <button
               onClick={onSelectAll}
               className="text-xs text-primary-light hover:text-primary transition-colors"
@@ -239,26 +240,27 @@ function CheckboxItem({
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <label className="flex items-center gap-2 px-2 py-1 rounded hover:bg-surface-hover cursor-pointer transition-colors group">
+    <div
+      role="checkbox"
+      aria-checked={checked}
+      tabIndex={0}
+      onClick={() => onChange(!checked)}
+      onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); onChange(!checked); } }}
+      className="flex items-center gap-2 px-2 py-1 rounded hover:bg-surface-hover cursor-pointer transition-colors group"
+    >
       <div
-        className={`w-4 h-4 rounded border flex items-center justify-center transition-all ${
+        className={`w-4 h-4 rounded border flex items-center justify-center ${
           checked
             ? 'bg-primary border-primary'
-            : 'border-border group-hover:border-text-secondary'
+            : 'border-line group-hover:border-text-secondary'
         }`}
       >
         {checked && <CheckIcon />}
       </div>
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-        className="sr-only"
-      />
       <span className="text-sm text-text-secondary group-hover:text-text-primary transition-colors truncate">
         {label}
       </span>
-    </label>
+    </div>
   );
 }
 
@@ -348,7 +350,7 @@ function ConfirmDialog({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onCancel}>
       <div
-        className="bg-surface border border-border rounded-xl p-6 max-w-sm w-full mx-4 shadow-2xl"
+        className="bg-surface border border-line rounded-xl p-6 max-w-sm w-full mx-4 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="text-lg font-semibold text-text-primary mb-2">{title}</h3>
@@ -374,12 +376,30 @@ function ConfirmDialog({
 
 // ─── Main Page Component ────────────────────────────────────────────────────────
 
-export default function HomePageWrapper() {
+function HomePageWithBoundary() {
   return (
     <ErrorBoundary>
       <HomePage />
     </ErrorBoundary>
   );
+}
+
+const DynamicHomePage = dynamic(() => Promise.resolve(HomePageWithBoundary), {
+  ssr: false,
+  loading: () => (
+    <div style={{ minHeight: '100vh', background: '#181825', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ textAlign: 'center', color: '#a1a1aa' }}>
+        <h1 style={{ fontSize: 24, marginBottom: 12, color: '#e4e4e7' }}>
+          <span style={{ color: '#6c5ce7' }}>TrueFans</span> SMALLBIZ
+        </h1>
+        <p>Loading...</p>
+      </div>
+    </div>
+  ),
+});
+
+export default function Page() {
+  return <DynamicHomePage />;
 }
 
 function HomePage() {
@@ -757,6 +777,35 @@ function HomePage() {
     [regionFilter, typeFilter]
   );
 
+  // ── View Region Businesses ──
+  const viewRegionBusinesses = useCallback(async (regionId: string) => {
+    try {
+      const res = await fetch(`/api/businesses?regionId=${regionId}&limit=1000`);
+      if (res.ok) {
+        const data = await res.json();
+        setSearchResults(data.businesses || []);
+        setSearchProgress({
+          status: 'complete',
+          currentRegion: '',
+          currentType: '',
+          regionsProcessed: 1,
+          totalRegions: 1,
+          newFound: data.businesses?.length || 0,
+          totalInDb: data.total || 0,
+          errors: 0,
+          percentage: 100,
+        });
+        setRegionFilter('');
+        setTypeFilter('');
+        setSearchFilter('');
+        setCurrentPage(1);
+        setActiveTab('search');
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
   // ── Database ──
   const loadDatabaseSummary = useCallback(async () => {
     setDbLoading(true);
@@ -919,19 +968,20 @@ function HomePage() {
   // ─── RENDER ───────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex h-screen bg-surface-dark text-text-primary overflow-hidden">
+    <div className="flex h-screen bg-surface-dark text-text-primary" style={{ overflow: 'hidden' }}>
       {/* ── Sidebar ── */}
       <aside
-        className={`flex-shrink-0 bg-surface border-r border-border flex flex-col transition-all duration-300 ease-in-out ${
+        className={`flex-shrink-0 bg-surface border-r border-line flex flex-col ${
           sidebarOpen ? 'w-[360px]' : 'w-0'
-        } overflow-hidden`}
+        }`}
+        style={{ overflow: 'hidden', transition: 'width 0.3s ease-in-out' }}
         aria-label="Sidebar"
       >
         <div className="w-[360px] flex flex-col h-full">
           {/* Sidebar Header */}
-          <div className="px-5 py-4 border-b border-border">
+          <div className="px-5 py-4 border-b border-line">
             <h1 className="text-xl font-bold text-text-primary">
-              <span className="text-primary">SmallBiz</span> Finder
+              <span className="text-primary">TrueFans</span> SMALLBIZ
             </h1>
             <p className="text-xs text-text-muted mt-0.5">Service Business Discovery</p>
           </div>
@@ -950,7 +1000,7 @@ function HomePage() {
                     id="maxPerRegion"
                     value={maxPerRegion}
                     onChange={(e) => setMaxPerRegion(parseInt(e.target.value))}
-                    className="w-full bg-surface-dark border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors"
+                    className="w-full bg-surface-dark border border-line rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors"
                   >
                     {[25, 50, 75, 100, 150, 200, 300, 500, 750, 1000].map((n) => (
                       <option key={n} value={n}>{n}</option>
@@ -960,7 +1010,7 @@ function HomePage() {
                 <label className="flex items-center gap-2 cursor-pointer group">
                   <div
                     className={`relative w-9 h-5 rounded-full transition-colors ${
-                      useCache ? 'bg-primary' : 'bg-surface-dark border border-border'
+                      useCache ? 'bg-primary' : 'bg-surface-dark border border-line'
                     }`}
                     onClick={() => setUseCache(!useCache)}
                     role="switch"
@@ -1038,8 +1088,7 @@ function HomePage() {
               </h3>
               <div className="space-y-2">
                 {BUSINESS_CATEGORIES.map((category: string) => {
-                  const allByCategory = getBusinessTypesByCategory();
-                  const types = allByCategory[category] || [];
+                  const types = getBusinessTypesByCategory()[category] || [];
                   const selectedInCat = types.filter((t: BusinessType) => selectedBusinessTypes.has(t.id)).length;
                   return (
                     <ExpandableSection
@@ -1068,7 +1117,7 @@ function HomePage() {
           </div>
 
           {/* Sidebar Footer - Action Buttons */}
-          <div className="px-4 py-4 border-t border-border space-y-3">
+          <div className="px-4 py-4 border-t border-line space-y-3">
             {selectedRegions.size > 0 && selectedBusinessTypes.size > 0 && (
               <p className="text-xs text-text-muted text-center">
                 Up to{' '}
@@ -1110,8 +1159,8 @@ function HomePage() {
       {/* ── Sidebar Toggle ── */}
       <button
         onClick={() => setSidebarOpen(!sidebarOpen)}
-        className="absolute left-0 top-1/2 -translate-y-1/2 z-20 bg-surface border border-border border-l-0 rounded-r-lg px-1 py-3 text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-all"
-        style={{ left: sidebarOpen ? '360px' : '0px', transition: 'left 0.3s ease-in-out' }}
+        className="absolute top-1/2 -translate-y-1/2 z-20 bg-surface border border-line border-l-0 rounded-r-lg px-1 py-3 text-text-secondary hover:text-text-primary hover:bg-surface-hover"
+        style={{ left: sidebarOpen ? 360 : 0, transition: 'left 0.3s ease-in-out' }}
         aria-label={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
       >
         {sidebarOpen ? (
@@ -1126,9 +1175,9 @@ function HomePage() {
       </button>
 
       {/* ── Main Content ── */}
-      <main className="flex-1 flex flex-col overflow-hidden">
+      <main className="flex-1 flex flex-col" style={{ overflow: 'hidden' }}>
         {/* Tab Bar */}
-        <div className="flex items-center border-b border-border bg-surface px-6">
+        <div className="flex items-center border-b border-line bg-surface px-6">
           {(['search', 'database', 'schedules'] as TabKey[]).map((tab) => (
             <button
               key={tab}
@@ -1159,7 +1208,7 @@ function HomePage() {
                     <SearchIcon className="w-10 h-10 text-primary" />
                   </div>
                   <h2 className="text-2xl font-bold text-text-primary mb-3">
-                    Welcome to SmallBiz Finder
+                    Welcome to TrueFans SMALLBIZ
                   </h2>
                   <p className="text-text-secondary max-w-md mb-8 leading-relaxed">
                     Discover service businesses across multiple regions. Select your target
@@ -1167,15 +1216,15 @@ function HomePage() {
                     <span className="text-primary-light font-medium">Search Selected</span> to begin.
                   </p>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-lg w-full">
-                    <div className="bg-surface rounded-xl p-4 border border-border">
+                    <div className="bg-surface rounded-xl p-4 border border-line">
                       <div className="text-2xl mb-2">1</div>
                       <p className="text-sm text-text-secondary">Select regions</p>
                     </div>
-                    <div className="bg-surface rounded-xl p-4 border border-border">
+                    <div className="bg-surface rounded-xl p-4 border border-line">
                       <div className="text-2xl mb-2">2</div>
                       <p className="text-sm text-text-secondary">Choose business types</p>
                     </div>
-                    <div className="bg-surface rounded-xl p-4 border border-border">
+                    <div className="bg-surface rounded-xl p-4 border border-line">
                       <div className="text-2xl mb-2">3</div>
                       <p className="text-sm text-text-secondary">Search & export</p>
                     </div>
@@ -1186,7 +1235,7 @@ function HomePage() {
               {/* Search Progress */}
               {(isSearching || (searchProgress && searchProgress.status !== 'complete' && searchResults.length === 0)) && searchProgress && (
                 <div className="max-w-2xl mx-auto">
-                  <div className="bg-surface rounded-xl border border-border p-6 mb-6">
+                  <div className="bg-surface rounded-xl border border-line p-6 mb-6">
                     <div className="flex items-center justify-between mb-4">
                       <h3 className="text-lg font-semibold text-text-primary flex items-center gap-2">
                         {isSearching && <Spinner className="text-primary" />}
@@ -1246,7 +1295,7 @@ function HomePage() {
 
               {/* Search Summary Card */}
               {!isSearching && searchProgress?.status === 'complete' && searchResults.length > 0 && (
-                <div className="bg-surface rounded-xl border border-border p-5 mb-6">
+                <div className="bg-surface rounded-xl border border-line p-5 mb-6">
                   <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
                     <div className="text-center">
                       <p className="text-2xl font-bold text-text-primary">
@@ -1315,13 +1364,13 @@ function HomePage() {
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => handleExport('xlsx', false)}
-                        className="px-3 py-1.5 rounded-lg bg-surface border border-border text-sm text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors"
+                        className="px-3 py-1.5 rounded-lg bg-surface border border-line text-sm text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors"
                       >
                         Export All (Excel)
                       </button>
                       <button
                         onClick={() => handleExport('csv', true)}
-                        className="px-3 py-1.5 rounded-lg bg-surface border border-border text-sm text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors"
+                        className="px-3 py-1.5 rounded-lg bg-surface border border-line text-sm text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors"
                       >
                         Export New Only (CSV)
                       </button>
@@ -1340,7 +1389,7 @@ function HomePage() {
                           setCurrentPage(1);
                         }}
                         placeholder="Filter results..."
-                        className="w-full bg-surface border border-border rounded-lg pl-9 pr-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors"
+                        className="w-full bg-surface border border-line rounded-lg pl-9 pr-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors"
                       />
                     </div>
                     <select
@@ -1349,7 +1398,7 @@ function HomePage() {
                         setRegionFilter(e.target.value);
                         setCurrentPage(1);
                       }}
-                      className="bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-secondary focus:outline-none focus:border-primary transition-colors"
+                      className="bg-surface border border-line rounded-lg px-3 py-2 text-sm text-text-secondary focus:outline-none focus:border-primary transition-colors"
                       aria-label="Filter by region"
                     >
                       <option value="">All Regions</option>
@@ -1365,7 +1414,7 @@ function HomePage() {
                         setTypeFilter(e.target.value);
                         setCurrentPage(1);
                       }}
-                      className="bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-secondary focus:outline-none focus:border-primary transition-colors"
+                      className="bg-surface border border-line rounded-lg px-3 py-2 text-sm text-text-secondary focus:outline-none focus:border-primary transition-colors"
                       aria-label="Filter by business type"
                     >
                       <option value="">All Types</option>
@@ -1378,11 +1427,11 @@ function HomePage() {
                   </div>
 
                   {/* Table */}
-                  <div className="bg-surface rounded-xl border border-border overflow-hidden">
+                  <div className="bg-surface rounded-xl border border-line overflow-hidden">
                     <div className="overflow-x-auto">
                       <table className="w-full text-sm">
                         <thead>
-                          <tr className="border-b border-border bg-surface-dark">
+                          <tr className="border-b border-line bg-surface-dark">
                             <th className="w-8 px-3 py-3" />
                             {[
                               { key: 'name' as keyof Business, label: 'Name' },
@@ -1408,7 +1457,7 @@ function HomePage() {
                             ))}
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-border">
+                        <tbody className="divide-y divide-line">
                           {paginatedResults.map((business) => (
                             <React.Fragment key={business.id}>
                               <tr
@@ -1681,19 +1730,19 @@ function HomePage() {
                 <>
                   {/* Summary Cards */}
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-                    <div className="bg-surface rounded-xl border border-border p-5">
+                    <div className="bg-surface rounded-xl border border-line p-5">
                       <p className="text-sm text-text-muted mb-1">Total Businesses</p>
                       <p className="text-3xl font-bold text-text-primary">
                         {dbSummary.totalBusinesses.toLocaleString()}
                       </p>
                     </div>
-                    <div className="bg-surface rounded-xl border border-border p-5">
+                    <div className="bg-surface rounded-xl border border-line p-5">
                       <p className="text-sm text-text-muted mb-1">Total Regions</p>
                       <p className="text-3xl font-bold text-text-primary">
                         {dbSummary.totalRegions}
                       </p>
                     </div>
-                    <div className="bg-surface rounded-xl border border-border p-5">
+                    <div className="bg-surface rounded-xl border border-line p-5">
                       <p className="text-sm text-text-muted mb-1">Business Types</p>
                       <p className="text-3xl font-bold text-text-primary">
                         {dbSummary.businessTypes}
@@ -1728,7 +1777,7 @@ function HomePage() {
                     {dbSummary.regions.map((region) => (
                       <div
                         key={region.id}
-                        className="bg-surface rounded-xl border border-border p-4 hover:border-primary/30 transition-colors"
+                        className="bg-surface rounded-xl border border-line p-4 hover:border-primary/30 transition-colors"
                       >
                         <div className="flex items-center justify-between mb-3">
                           <div className="flex items-center gap-2">
@@ -1746,10 +1795,7 @@ function HomePage() {
                         </p>
                         <div className="flex items-center gap-2">
                           <button
-                            onClick={() => {
-                              setActiveTab('search');
-                              setRegionFilter(region.id);
-                            }}
+                            onClick={() => viewRegionBusinesses(region.id)}
                             className="flex-1 px-2 py-1 rounded text-xs text-primary-light border border-primary/30 hover:bg-primary/10 transition-colors"
                           >
                             View
@@ -1763,7 +1809,7 @@ function HomePage() {
                               });
                               window.open(`/api/export?${params.toString()}`);
                             }}
-                            className="flex-1 px-2 py-1 rounded text-xs text-text-secondary border border-border hover:bg-surface-hover transition-colors"
+                            className="flex-1 px-2 py-1 rounded text-xs text-text-secondary border border-line hover:bg-surface-hover transition-colors"
                           >
                             Export
                           </button>
@@ -1831,7 +1877,7 @@ function HomePage() {
 
               {/* Schedule Form */}
               {showScheduleForm && (
-                <div className="bg-surface rounded-xl border border-border p-6 mb-6">
+                <div className="bg-surface rounded-xl border border-line p-6 mb-6">
                   <h4 className="text-base font-semibold text-text-primary mb-4">
                     {editingSchedule ? 'Edit Schedule' : 'New Schedule'}
                   </h4>
@@ -1848,7 +1894,7 @@ function HomePage() {
                           setScheduleForm((prev) => ({ ...prev, name: e.target.value }))
                         }
                         placeholder="e.g. Weekly US Plumbers"
-                        className="w-full bg-surface-dark border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors"
+                        className="w-full bg-surface-dark border border-line rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors"
                       />
                     </div>
                     <div>
@@ -1864,7 +1910,7 @@ function HomePage() {
                             frequency: e.target.value as 'weekly' | 'biweekly' | 'monthly',
                           }))
                         }
-                        className="w-full bg-surface-dark border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-primary transition-colors"
+                        className="w-full bg-surface-dark border border-line rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-primary transition-colors"
                       >
                         <option value="weekly">Weekly</option>
                         <option value="biweekly">Biweekly</option>
@@ -1887,7 +1933,7 @@ function HomePage() {
                             maxPerRegion: Math.max(1, parseInt(e.target.value) || 1),
                           }))
                         }
-                        className="w-full bg-surface-dark border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors"
+                        className="w-full bg-surface-dark border border-line rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors"
                       />
                     </div>
                   </div>
@@ -1898,7 +1944,7 @@ function HomePage() {
                       <p className="text-sm text-text-secondary mb-1">
                         Regions ({scheduleForm.regions.length} selected)
                       </p>
-                      <div className="bg-surface-dark border border-border rounded-lg p-2 max-h-32 overflow-y-auto">
+                      <div className="bg-surface-dark border border-line rounded-lg p-2 max-h-32 overflow-y-auto">
                         {scheduleForm.regions.length === 0 ? (
                           <p className="text-xs text-text-muted p-1">
                             No regions selected. Use the sidebar to select regions first.
@@ -1908,7 +1954,7 @@ function HomePage() {
                             {scheduleForm.regions.map((rId) => (
                               <span
                                 key={rId}
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-surface text-xs text-text-secondary border border-border"
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-surface text-xs text-text-secondary border border-line"
                               >
                                 {rId}
                                 <button
@@ -1933,7 +1979,7 @@ function HomePage() {
                       <p className="text-sm text-text-secondary mb-1">
                         Business Types ({scheduleForm.businessTypes.length} selected)
                       </p>
-                      <div className="bg-surface-dark border border-border rounded-lg p-2 max-h-32 overflow-y-auto">
+                      <div className="bg-surface-dark border border-line rounded-lg p-2 max-h-32 overflow-y-auto">
                         {scheduleForm.businessTypes.length === 0 ? (
                           <p className="text-xs text-text-muted p-1">
                             No types selected. Use the sidebar to select business types first.
@@ -1943,7 +1989,7 @@ function HomePage() {
                             {scheduleForm.businessTypes.map((tId) => (
                               <span
                                 key={tId}
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-surface text-xs text-text-secondary border border-border"
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-surface text-xs text-text-secondary border border-line"
                               >
                                 {tId}
                                 <button
@@ -1990,7 +2036,7 @@ function HomePage() {
               {/* Schedules List */}
               {!schedulesLoading && schedules.length === 0 && !showScheduleForm && (
                 <div className="flex flex-col items-center justify-center py-20 text-center">
-                  <div className="w-16 h-16 rounded-2xl bg-surface flex items-center justify-center mb-4 border border-border">
+                  <div className="w-16 h-16 rounded-2xl bg-surface flex items-center justify-center mb-4 border border-line">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-text-muted">
                       <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
                       <line x1="16" y1="2" x2="16" y2="6" />
@@ -2011,7 +2057,7 @@ function HomePage() {
                     <div
                       key={schedule.id}
                       className={`bg-surface rounded-xl border p-5 transition-colors ${
-                        schedule.active ? 'border-border hover:border-primary/30' : 'border-border/50 opacity-60'
+                        schedule.active ? 'border-line hover:border-primary/30' : 'border-line/50 opacity-60'
                       }`}
                     >
                       <div className="flex items-start justify-between gap-4">
@@ -2029,7 +2075,7 @@ function HomePage() {
                             >
                               {schedule.active ? 'Active' : 'Inactive'}
                             </span>
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-surface-dark text-text-secondary border border-border">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-surface-dark text-text-secondary border border-line">
                               {schedule.frequency}
                             </span>
                           </div>
@@ -2077,7 +2123,7 @@ function HomePage() {
                           <button
                             onClick={() => toggleScheduleActive(schedule)}
                             className={`relative w-9 h-5 rounded-full transition-colors ${
-                              schedule.active ? 'bg-primary' : 'bg-surface-dark border border-border'
+                              schedule.active ? 'bg-primary' : 'bg-surface-dark border border-line'
                             }`}
                             role="switch"
                             aria-checked={schedule.active}
@@ -2097,7 +2143,7 @@ function HomePage() {
                           </button>
                           <button
                             onClick={() => openEditSchedule(schedule)}
-                            className="px-3 py-1.5 rounded-lg text-xs text-text-secondary border border-border hover:bg-surface-hover transition-colors"
+                            className="px-3 py-1.5 rounded-lg text-xs text-text-secondary border border-line hover:bg-surface-hover transition-colors"
                           >
                             Edit
                           </button>
