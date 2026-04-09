@@ -75,10 +75,16 @@ interface SearchProgress {
   withNewsletter?: number;
 }
 
+interface BusinessTypeSummary {
+  businessType: string;
+  count: number;
+}
+
 interface DatabaseSummary {
   totalBusinesses: number;
   totalRegions: number;
   businessTypes: number;
+  businessTypeSummaries: BusinessTypeSummary[];
   regions: RegionSummary[];
 }
 
@@ -89,6 +95,7 @@ interface RegionSummary {
   countryCode: string;
   businessCount: number;
   lastUpdated: string;
+  businessTypes: BusinessTypeSummary[];
 }
 
 interface Schedule {
@@ -411,6 +418,7 @@ function HomePage() {
   // ── Region State ──
   const [selectedRegions, setSelectedRegions] = useState<Set<string>>(new Set());
   const [expandedRegionCategories, setExpandedRegionCategories] = useState<Set<string>>(new Set());
+  const [cityFilter, setCityFilter] = useState('');
 
   // ── Business Type State ──
   const [selectedBusinessTypes, setSelectedBusinessTypes] = useState<Set<string>>(new Set());
@@ -584,6 +592,7 @@ function HomePage() {
           businessTypes: Array.from(selectedBusinessTypes),
           maxPerRegion,
           useCache,
+          city: cityFilter.trim() || undefined,
         }),
         signal: controller.signal,
       });
@@ -696,7 +705,7 @@ function HomePage() {
       setIsSearching(false);
       abortControllerRef.current = null;
     }
-  }, [selectedRegions, selectedBusinessTypes, maxPerRegion, useCache]);
+  }, [selectedRegions, selectedBusinessTypes, maxPerRegion, useCache, cityFilter]);
 
   const stopSearch = useCallback(() => {
     abortControllerRef.current?.abort();
@@ -1075,6 +1084,43 @@ function HomePage() {
                 })}
               </div>
             </div>
+
+            {/* City Filter */}
+            {selectedRegions.size > 0 && (
+              <div>
+                <h3 className="text-xs uppercase tracking-wider text-text-muted font-semibold mb-3">
+                  City / Town
+                  {cityFilter && (
+                    <span className="ml-2 text-primary-light normal-case">
+                      ({cityFilter})
+                    </span>
+                  )}
+                </h3>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={cityFilter}
+                    onChange={(e) => setCityFilter(e.target.value)}
+                    placeholder="Optional: e.g. Austin, Manchester..."
+                    className="w-full px-3 py-2 rounded-lg bg-surface-hover border border-line text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-primary transition-colors"
+                  />
+                  {cityFilter && (
+                    <button
+                      onClick={() => setCityFilter('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary transition-colors"
+                      title="Clear city"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M3 3l8 8M11 3l-8 8" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+                <p className="text-xs text-text-muted mt-1.5">
+                  Narrow search to a specific city within the selected region(s)
+                </p>
+              </div>
+            )}
 
             {/* Business Type Selection */}
             <div>
@@ -1750,6 +1796,24 @@ function HomePage() {
                     </div>
                   </div>
 
+                  {/* Business Types Summary */}
+                  {dbSummary.businessTypeSummaries && dbSummary.businessTypeSummaries.length > 0 && (
+                    <div className="mb-8">
+                      <h3 className="text-lg font-semibold text-text-primary mb-4">Business Types</h3>
+                      <div className="flex flex-wrap gap-2">
+                        {dbSummary.businessTypeSummaries.map((bt) => (
+                          <span
+                            key={bt.businessType}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface border border-line text-sm"
+                          >
+                            <span className="text-text-primary font-medium">{bt.businessType}</span>
+                            <span className="text-text-muted">({bt.count})</span>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Region Grid */}
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-lg font-semibold text-text-primary">Regions</h3>
@@ -1790,6 +1854,23 @@ function HomePage() {
                         <p className="text-2xl font-bold text-text-primary mb-1">
                           {region.businessCount.toLocaleString()}
                         </p>
+                        {region.businessTypes && region.businessTypes.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mb-2">
+                            {region.businessTypes.slice(0, 5).map((bt) => (
+                              <span
+                                key={bt.businessType}
+                                className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary-light"
+                              >
+                                {bt.businessType} ({bt.count})
+                              </span>
+                            ))}
+                            {region.businessTypes.length > 5 && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-hover text-text-muted">
+                                +{region.businessTypes.length - 5} more
+                              </span>
+                            )}
+                          </div>
+                        )}
                         <p className="text-xs text-text-muted mb-3">
                           Updated {formatDate(region.lastUpdated)}
                         </p>

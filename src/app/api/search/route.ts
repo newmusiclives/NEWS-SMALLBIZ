@@ -17,6 +17,7 @@ export async function POST(request: NextRequest) {
       businessTypeIds,
       maxPerRegion = 200,
       useCache = true,
+      city,
     } = body as {
       regions?: string[];
       regionIds?: string[];
@@ -24,6 +25,7 @@ export async function POST(request: NextRequest) {
       businessTypeIds?: string[];
       maxPerRegion?: number;
       useCache?: boolean;
+      city?: string;
     };
 
     const resolvedRegionIds = regions || regionIds || [];
@@ -110,6 +112,7 @@ export async function POST(request: NextRequest) {
             maxPerRegion,
             useCache,
             sendProgress,
+            city,
           );
 
           // Scan websites for newsletter signups

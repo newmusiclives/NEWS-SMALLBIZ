@@ -261,6 +261,38 @@ export function getRegionSummaries(): RegionSummary[] {
   return stmt.all() as RegionSummary[];
 }
 
+export interface BusinessTypeSummary {
+  businessType: string;
+  count: number;
+}
+
+export function getBusinessTypeSummaries(): BusinessTypeSummary[] {
+  const db = getDb();
+  const stmt = db.prepare(`
+    SELECT
+      business_type as businessType,
+      COUNT(*) as count
+    FROM businesses
+    GROUP BY business_type
+    ORDER BY count DESC
+  `);
+  return stmt.all() as BusinessTypeSummary[];
+}
+
+export function getBusinessTypesForRegion(regionId: string): BusinessTypeSummary[] {
+  const db = getDb();
+  const stmt = db.prepare(`
+    SELECT
+      business_type as businessType,
+      COUNT(*) as count
+    FROM businesses
+    WHERE region_id = ?
+    GROUP BY business_type
+    ORDER BY count DESC
+  `);
+  return stmt.all(regionId) as BusinessTypeSummary[];
+}
+
 export function clearRegion(regionId: string): number {
   const db = getDb();
   const stmt = db.prepare('DELETE FROM businesses WHERE region_id = ?');

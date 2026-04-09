@@ -1,14 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getBusinessCount, getRegionSummaries, clearRegion, clearAll } from '@/lib/db';
+import { getBusinessCount, getRegionSummaries, getBusinessTypeSummaries, getBusinessTypesForRegion, clearRegion, clearAll } from '@/lib/db';
 
 export async function GET() {
   try {
     const totalBusinesses = getBusinessCount();
     const regionSummaries = getRegionSummaries();
     const totalRegions = regionSummaries.length;
-
-    // Count distinct business types from region summaries
-    const businessTypes = new Set(regionSummaries.map((r) => r.regionId)).size;
+    const businessTypeSummaries = getBusinessTypeSummaries();
+    const businessTypes = businessTypeSummaries.length;
 
     const regions = regionSummaries.map((r) => ({
       id: r.regionId,
@@ -17,12 +16,14 @@ export async function GET() {
       countryCode: r.country,
       businessCount: r.businessCount,
       lastUpdated: r.lastUpdated || '',
+      businessTypes: getBusinessTypesForRegion(r.regionId),
     }));
 
     return NextResponse.json({
       totalBusinesses,
       totalRegions,
       businessTypes,
+      businessTypeSummaries,
       regions,
     });
   } catch (err) {

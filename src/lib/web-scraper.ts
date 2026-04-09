@@ -678,6 +678,7 @@ async function searchVenues(
   businessTypeName: string,
   maxResults: number,
   onStatus?: (msg: string) => void,
+  city?: string,
 ): Promise<WebSearchResult[]> {
   const businesses: WebSearchResult[] = [];
   const seenDomains = new Set<string>();
@@ -685,14 +686,24 @@ async function searchVenues(
   const venueResults: { name: string; url: string }[] = [];
   const listArticleUrls: { title: string; url: string }[] = [];
 
-  // Use top 6 cities + state-level queries — sequential to avoid rate limiting
-  const cities = getCitiesForRegion(regionName).slice(0, 6);
-  const searchQueries: string[] = [
-    `${businessTypeName} ${regionName}`,
-    `best ${businessTypeName} ${regionName}`,
-  ];
-  for (const city of cities) {
-    searchQueries.push(`${businessTypeName} ${city} ${regionName}`);
+  // When a specific city is provided, focus all queries on that city
+  const searchQueries: string[] = [];
+  if (city) {
+    searchQueries.push(
+      `${businessTypeName} ${city} ${regionName}`,
+      `best ${businessTypeName} ${city} ${regionName}`,
+      `${businessTypeName} near ${city} ${regionName}`,
+    );
+  } else {
+    // Use top 6 cities + state-level queries — sequential to avoid rate limiting
+    const cities = getCitiesForRegion(regionName).slice(0, 6);
+    searchQueries.push(
+      `${businessTypeName} ${regionName}`,
+      `best ${businessTypeName} ${regionName}`,
+    );
+    for (const c of cities) {
+      searchQueries.push(`${businessTypeName} ${c} ${regionName}`);
+    }
   }
 
   // Phase 1: Search ONE AT A TIME to avoid rate limiting
@@ -806,20 +817,31 @@ async function searchGeneral(
   businessTypeName: string,
   maxResults: number,
   onStatus?: (msg: string) => void,
+  city?: string,
 ): Promise<WebSearchResult[]> {
   const businesses: WebSearchResult[] = [];
   const seenDomains = new Set<string>();
   const seenNames = new Set<string>();
   const candidates: { name: string; url: string }[] = [];
 
-  // Use focused queries — top 6 cities max + state-level
-  const cities = getCitiesForRegion(regionName).slice(0, 6);
-  const queries = [
-    `${businessTypeName} ${regionName} website email`,
-    `best ${businessTypeName} company ${regionName}`,
-  ];
-  for (const city of cities) {
-    queries.push(`${businessTypeName} ${city} ${regionName}`);
+  // When a specific city is provided, focus all queries on that city
+  const queries: string[] = [];
+  if (city) {
+    queries.push(
+      `${businessTypeName} ${city} ${regionName} website email`,
+      `best ${businessTypeName} company ${city} ${regionName}`,
+      `${businessTypeName} near ${city} ${regionName}`,
+    );
+  } else {
+    // Use focused queries — top 6 cities max + state-level
+    const cities = getCitiesForRegion(regionName).slice(0, 6);
+    queries.push(
+      `${businessTypeName} ${regionName} website email`,
+      `best ${businessTypeName} company ${regionName}`,
+    );
+    for (const c of cities) {
+      queries.push(`${businessTypeName} ${c} ${regionName}`);
+    }
   }
 
   // Phase 1: Search ONE AT A TIME with proper delays to avoid rate limiting
@@ -896,13 +918,14 @@ export async function searchBusinessesWeb(
   businessTypeName: string,
   maxResults: number,
   onStatus?: (msg: string) => void,
+  city?: string,
 ): Promise<WebSearchResult[]> {
   // Reset search engine fail counters for fresh start
   ddgFailCount = 0;
   searchCallCount = 0;
 
   if (VENUE_BUSINESS_TYPES.has(businessType)) {
-    return searchVenues(regionId, regionName, country, businessType, businessTypeName, maxResults, onStatus);
+    return searchVenues(regionId, regionName, country, businessType, businessTypeName, maxResults, onStatus, city);
   }
-  return searchGeneral(regionId, regionName, country, businessType, businessTypeName, maxResults, onStatus);
+  return searchGeneral(regionId, regionName, country, businessType, businessTypeName, maxResults, onStatus, city);
 }

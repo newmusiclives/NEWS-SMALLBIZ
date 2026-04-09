@@ -333,6 +333,7 @@ export async function searchBusinesses(
   maxPerRegion: number,
   _useCache: boolean,
   onProgress: (progress: SearchProgress) => void,
+  city?: string,
 ): Promise<SearchResult[]> {
   const { searchBusinessesWeb } = await import('./web-scraper');
   const { BUSINESS_TYPES } = await import('./business-types');
@@ -380,10 +381,11 @@ export async function searchBusinesses(
 
         if (apiKey) {
           // Google Places API if key is available
+          const locationQuery = city ? `${city}, ${regionInfo.name}` : regionInfo.name;
           results = await searchGooglePlaces(
             regionId,
             businessType,
-            regionInfo.name,
+            locationQuery,
             apiKey,
             maxPerRegion,
           );
@@ -409,6 +411,7 @@ export async function searchBusinesses(
                 errors,
               });
             },
+            city,
           );
 
           results = webResults.map((r) => ({
