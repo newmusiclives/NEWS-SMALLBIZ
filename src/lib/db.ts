@@ -1,11 +1,21 @@
-import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 import { randomUUID } from 'crypto';
 
 const DB_PATH = path.join(process.cwd(), 'data', 'smallbiz.db');
 
-let dbInstance: Database.Database | null = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let BetterSqlite3: any = null;
+try {
+  // Use dynamic string to prevent webpack from resolving this at build time
+  const moduleName = 'better-sqlite3';
+  BetterSqlite3 = require(moduleName);
+} catch {
+  // Native module not available (e.g. Netlify serverless)
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let dbInstance: any = null;
 
 export interface Business {
   id: string;
@@ -61,7 +71,8 @@ export interface BusinessFilters {
   offset?: number;
 }
 
-function createTables(db: Database.Database): void {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function createTables(db: any): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS businesses (
       id TEXT PRIMARY KEY,
@@ -105,7 +116,8 @@ function createTables(db: Database.Database): void {
   `);
 }
 
-function migrateTables(db: Database.Database): void {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function migrateTables(db: any): void {
   // Add newsletter columns if they don't exist (for existing databases)
   const cols = db.prepare("PRAGMA table_info(businesses)").all() as { name: string }[];
   const colNames = cols.map((c) => c.name);
@@ -120,15 +132,20 @@ function migrateTables(db: Database.Database): void {
   }
 }
 
-export function getDb(): Database.Database {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function getDb(): any {
   if (dbInstance) return dbInstance;
+
+  if (!BetterSqlite3) {
+    throw new Error('Database not available in this environment');
+  }
 
   const dir = path.dirname(DB_PATH);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
 
-  dbInstance = new Database(DB_PATH);
+  dbInstance = new BetterSqlite3(DB_PATH);
   dbInstance.pragma('journal_mode = WAL');
   createTables(dbInstance);
   migrateTables(dbInstance);

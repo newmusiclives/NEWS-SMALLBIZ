@@ -598,97 +598,47 @@ function HomePage() {
       });
 
       if (!response.ok) {
-        throw new Error(`Search failed: ${response.statusText}`);
+        const errBody = await response.text();
+        throw new Error(`Search failed: ${response.statusText} - ${errBody}`);
       }
 
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error('No response body');
+      const data = await response.json();
 
-      const decoder = new TextDecoder();
-      let buffer = '';
+      if (data.error) {
+        throw new Error(data.error);
+      }
 
-      const processLine = (line: string) => {
-        if (!line.trim()) return;
-        try {
-          const data = JSON.parse(line);
-          if (!data || !data.type) return;
+      // Process results from JSON response
+      if (Array.isArray(data.results)) {
+        const safeBiz = data.results.map((b: Record<string, unknown>) => ({
+          id: b.id || `${b.name}-${b.address}-${b.regionId}`,
+          name: String(b.name || 'Unknown'),
+          type: String(b.type || ''),
+          address: String(b.address || ''),
+          city: String(b.city || ''),
+          region: String(b.region || ''),
+          regionId: String(b.regionId || ''),
+          phone: String(b.phone || ''),
+          email: String(b.email || ''),
+          website: String(b.website || ''),
+          rating: typeof b.rating === 'number' ? b.rating : null,
+          isNew: b.isNew ?? true,
+          hasNewsletter: b.hasNewsletter ?? false,
+          newsletterSignals: Array.isArray(b.newsletterSignals) ? b.newsletterSignals : [],
+          eventsUrl: String(b.eventsUrl || ''),
+        }));
+        setSearchResults(safeBiz);
+      }
 
-          if (data.type === 'progress' && data.data) {
-            setSearchProgress((prev) => ({
-              status: 'searching' as const,
-              currentRegion: data.data.currentRegion ?? prev?.currentRegion ?? '',
-              currentType: data.data.currentType ?? prev?.currentType ?? '',
-              regionsProcessed: data.data.regionsProcessed ?? prev?.regionsProcessed ?? 0,
-              totalRegions: data.data.totalRegions ?? prev?.totalRegions ?? 0,
-              newFound: data.data.newFound ?? prev?.newFound ?? 0,
-              totalInDb: data.data.totalInDb ?? prev?.totalInDb ?? 0,
-              errors: data.data.errors ?? prev?.errors ?? 0,
-              percentage: data.data.percentage ?? prev?.percentage ?? 0,
-              totalDiscovered: data.data.totalDiscovered ?? prev?.totalDiscovered,
-              duplicatesSkipped: data.data.duplicatesSkipped ?? prev?.duplicatesSkipped,
-              withNewsletter: data.data.withNewsletter ?? prev?.withNewsletter,
-            }));
-          } else if (data.type === 'results' && Array.isArray(data.data)) {
-            // Sanitize business objects to prevent render crashes from null fields
-            const safeBiz = data.data.map((b: Record<string, unknown>) => ({
-              id: b.id || `${b.name}-${b.address}-${b.regionId}`,
-              name: String(b.name || 'Unknown'),
-              type: String(b.type || ''),
-              address: String(b.address || ''),
-              city: String(b.city || ''),
-              region: String(b.region || ''),
-              regionId: String(b.regionId || ''),
-              phone: String(b.phone || ''),
-              email: String(b.email || ''),
-              website: String(b.website || ''),
-              rating: typeof b.rating === 'number' ? b.rating : null,
-              isNew: b.isNew ?? true,
-              hasNewsletter: b.hasNewsletter ?? false,
-              newsletterSignals: Array.isArray(b.newsletterSignals) ? b.newsletterSignals : [],
-              eventsUrl: String(b.eventsUrl || ''),
-            }));
-            setSearchResults((prev) => [...prev, ...safeBiz]);
-          } else if (data.type === 'complete' && data.data) {
-            setSearchProgress((prev) => ({
-              ...prev!,
-              ...data.data,
-              status: 'complete' as const,
-              percentage: 100,
-            }));
-          } else if (data.type === 'error') {
-            setSearchProgress((prev) => prev ? {
-              ...prev,
-              errors: (prev.errors || 0) + 1,
-              status: 'error' as const,
-            } : null);
-          }
-          // Ignore 'heartbeat' and unknown types
-        } catch {
-          // Skip unparseable lines
-        }
-      };
-
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || '';
-
-          for (const line of lines) {
-            processLine(line);
-          }
-        }
-        // Process any remaining buffer
-        if (buffer.trim()) {
-          processLine(buffer);
-        }
-      } catch (readErr) {
-        console.error('Stream read error:', readErr);
-        // Stream died — show error but don't crash
-        setSearchProgress((prev) => prev ? { ...prev, status: 'error' as const } : null);
+      // Set final progress from summary
+      if (data.summary) {
+        setSearchProgress({
+          ...data.summary,
+          status: 'complete' as const,
+          currentRegion: '',
+          currentType: '',
+          percentage: 100,
+        });
       }
     } catch (err: unknown) {
       console.error('Search error:', err);
